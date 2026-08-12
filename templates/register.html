@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>고객 대량 등록</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .customer-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed #E5E8EB;
+  }
+  .customer-row .field {
+    flex: 1;
+    margin-bottom: 0;
+  }
+  .btn-remove {
+    background-color: #FF4D4F;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    height: 38px;
+    padding: 0 12px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  .action-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 18px;
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <a class="back" href="/">◀ 메인으로</a>
+    <h1>고객 다중 등록</h1>
+    <p>아래 칸을 채우고 [+] 버튼으로 입력창을 추가할 수 있습니다.</p>
+  </div>
+  <div class="container">
+    <div class="card">
+      <!-- 입력 행들이 추가될 공간 -->
+      <div id="customer-list-container">
+        <!-- 첫 번째 행 기본 제공 -->
+        <div class="customer-row" id="row-0">
+          <div class="field">
+            <label>이름</label>
+            <input class="input-name" type="text" placeholder="홍길동">
+          </div>
+          <div class="field">
+            <label>전화번호 (선택)</label>
+            <input class="input-phone" type="text" placeholder="8 또는 11자리">
+          </div>
+          <div class="field">
+            <label>코인 개수</label>
+            <input class="input-coin" type="text" placeholder="5">
+          </div>
+          <div class="field">
+            <label>기타 (선택)</label>
+            <input class="input-memo" type="text" placeholder="메모">
+          </div>
+          <button class="btn-remove" onclick="removeRow(0)">X</button>
+        </div>
+      </div>
+
+      <div class="action-buttons">
+        <button class="btn btn-gray" style="flex: 1;" onclick="addRow()">[+] 고객 추가</button>
+        <button class="btn btn-blue" style="flex: 2;" onclick="submitAllRegister()">전체 등록하기</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal-box">
+      <h3 id="modal-title"></h3>
+      <div class="content" id="modal-content" style="white-space: pre-wrap; text-align: left; max-height: 300px; overflow-y: auto;"></div>
+      <div class="modal-btns">
+        <button class="btn btn-gray" id="modal-no">아니오</button>
+        <button class="btn btn-blue" id="modal-yes">예</button>
+      </div>
+    </div>
+  </div>
+
+<script src="/static/script.js"></script>
+<script>
+let rowCounter = 1;
+let pendingResults = [];
+let currentConfirmIndex = 0;
+
+// 입력 행 추가 함수
+function addRow() {
+  const container = document.getElementById("customer-list-container");
+  const rowId = rowCounter++;
+  
+  const div = document.createElement("div");
+  div.className = "customer-row";
+  div.id = `row-${rowId}`;
+  div.innerHTML = `
+    <div class="field">
+      <input class="input-name" type="text" placeholder="홍길동">
+    </div>
+    <div class="field">
+      <input class="input-phone" type="text" placeholder="8 또는 11자리">
+    </div>
+    <div class="field">
+      <input class="input-coin" type="text" placeholder="5">
+    </div>
+    <div class="field">
+      <input class="input-memo" type="text" placeholder="메모">
+    </div>
+    <button class="btn-remove" onclick="removeRow(${rowId})">X</button>
+  `;
+  container.appendChild(div);
+  bindEnterKey(div);
+}
+
+// 입력 행 삭제 함수
+function removeRow(id) {
+  const rows = document.querySelectorAll(".customer-row");
+  if (rows.length <= 1) {
+    showAlert("알림", "최소 1개의 입력 칸은 있어야 합니다.");
+    return;
+  }
+  document.getElementById(`row-${id}`).remove();
+}
+
+// 엔터키 바인딩 함수
+function bindEnterKey(rowElement) {
+  const inputs = rowElement.querySelectorAll("input");
+  inputs.forEach(input => {
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submitAllRegister();
+      }
+    });
+  });
+}
+
+// 페이지 최초 로드 시 첫 행에 엔터키 바인딩
+document.addEventListener("DOMContentLoaded", () => {
+  bindEnterKey(document.getElementById("row-0"));
+});
+
+// 전체 취합 후 1차 서버 검증 요청
+async function submitAllRegister() {
+  const rows = document.querySelectorAll(".customer-row");
+  const payload = [];
+
+  for (let row of rows) {
+    const name = row.querySelector(".input-name").value.trim();
+    const phone = row.querySelector(".input-phone").value.trim();
+    const coin = row.querySelector(".input-coin").value.trim();
+    const memo = row.querySelector(".input-memo").value.trim();
+
+    // 완전히 비어있는 행은 전송에서 제외 (실수 방지)
+    if (!name && !phone && !coin && !memo) continue;
+
+    payload.push({ name, phone, coin, memo });
+  }
+
+  if (payload.length === 0) {
+    showAlert("입력 확인", "등록할 고객 정보를 하나 이상 입력해주세요.");
+    return;
+  }
+
+  const res = await fetch("/api/register", {
+    method: "POST", 
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!data.ok) { showAlert("입력 확인", data.msg); return; }
+
+  // 검증된 리스트를 들고 연속 모달 팝업 프로세스 진입
+  pendingResults = data.results;
+  currentConfirmIndex = 0;
+  processNextConfirm();
+}
+
+// 여러 명을 하나씩 순차적으로 컨펌 창을 띄워주는 재귀 처리 함수
+function processNextConfirm() {
+  if (currentConfirmIndex >= pendingResults.length) {
+    showAlert("완료", "모든 고객 등록/합산 처리가 완료되었습니다.");
+    setTimeout(() => window.location.href = "/", 1200);
+    return;
+  }
+
+  const data = pendingResults[currentConfirmIndex];
+  const totalCount = pendingResults.length;
+  const currentNum = currentConfirmIndex + 1;
+  const progressTag = `[${currentNum} / ${totalCount}] `;
+
+  if (data.exists) {
+    showModal(
+      progressTag + "기존 고객 코인 합산",
+      `${data.name} 고객님은 이미 등록되어 있습니다.\n\n기존 코인: ${data.old_coin}개\n추가 코인: ${data.add_coin}개\n합산 후 코인: ${data.new_coin}개\n\n보관일을 오늘(${data.today})로 갱신하고 합산 처리하시겠습니까?`,
+      () => { askMemoUpdate(data); },
+      "합산하기", "btn-blue"
+    );
+  } else {
+    showModal(
+      progressTag + "신규 등록 확인",
+      `다음 내용으로 신규 등록하시겠습니까?\n\n이름: ${data.name}\n전화번호: ${data.phone || "(없음)"}\n코인 개수: ${data.coin}개\n보관일: ${data.today}\n기타: ${data.memo || "(없음)"}`,
+      () => { executeConfirm(data, false); },
+      "등록하기", "btn-blue"
+    );
+  }
+}
+
+function askMemoUpdate(data) {
+  if (!data.memo) { executeConfirm(data, false); return; }
+  showModal(
+    "기타 정보 수정",
+    `${data.name} 고객님의 기타(비고) 내용을 입력한 메모로 수정하시겠습니까?`,
+    () => { executeConfirm(data, true); },
+    "수정함", "btn-blue"
+  );
+}
+
+// 최종 한 명씩 컨펌 완료를 날리는 함수
+async function executeConfirm(singleData, updateMemo) {
+  const body = { ...singleData, update_memo: updateMemo };
+  await fetch("/api/register/confirm", {
+    method: "POST", 
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  });
+  
+  // 성공하면 인덱스를 1 늘리고 다음 고객 팝업 띄움
+  currentConfirmIndex++;
+  processNextConfirm();
+}
+</script>
+</body>
+</html>
